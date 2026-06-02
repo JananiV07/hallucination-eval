@@ -1,62 +1,104 @@
-# hallucination-eval
+<div align="center">
+
+# 🧪 hallucination-eval
+
+### Catch your LLM making things up — three reference-grounded metrics, any OpenAI-compatible model, one command.
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/JananiV07/hallucination-eval/blob/main/notebooks/walkthrough.ipynb)
 [![tests](https://github.com/JananiV07/hallucination-eval/actions/workflows/ci.yml/badge.svg)](https://github.com/JananiV07/hallucination-eval/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/downloads/)
+[![NLI: DeBERTa](https://img.shields.io/badge/NLI-deberta--v3--small-8A2BE2.svg)](https://huggingface.co/cross-encoder/nli-deberta-v3-small)
 
-Measure how much an LLM **hallucinates** with three complementary, reference-based
-metrics. Plug in any OpenAI-compatible model (OpenAI, Ollama, vLLM, LM Studio,
-Together, Groq, OpenRouter, …), pick a benchmark, and get a scored report.
+</div>
 
-| Metric | Question it answers | Backend |
-| --- | --- | --- |
-| **FactScore** | Are the answer's claims consistent with known **facts**? | NLI cross-encoder |
-| **FaithScore** | Is every claim grounded in the supplied **context**? | NLI cross-encoder |
-| **EntityScore** | Do the answer's named **entities** appear in the source? | spaCy NER |
+---
 
-All three return a score in `[0, 1]` where **higher = less hallucination**.
+**hallucination-eval** scores how much a language model *makes things up*, using three
+complementary, **reference-grounded** metrics instead of an expensive, biased
+LLM-as-a-judge. Point it at any OpenAI-compatible endpoint (OpenAI, **Google Gemini**,
+Ollama, vLLM, Together, Groq, OpenRouter…), pick a benchmark, and get a scored report —
+in the terminal, as JSON, and as CSV.
+
+```bash
+pip install hallucination-eval && python -m spacy download en_core_web_sm
+hallucination-eval --model gemini-2.5-flash --dataset halueval --limit 50 --show-samples
+```
+
+## What it does
+
+```mermaid
+flowchart LR
+    A[Dataset<br/>HaluEval · TruthfulQA · SQuAD] --> B{generate?}
+    B -- "any OpenAI-compatible model" --> C[Model answer]
+    B -- "--no-generate" --> C
+    C --> D[FactScore<br/><i>NLI vs. facts</i>]
+    C --> E[FaithScore<br/><i>NLI vs. context</i>]
+    C --> F[EntityScore<br/><i>NER vs. source</i>]
+    D --> G[Report<br/>rich table · JSON · CSV]
+    E --> G
+    F --> G
+    G --> H[Combined faithfulness<br/>& hallucination score]
+```
+
+## The three lenses on hallucination
+
+| Metric | The question it answers | Backend | Needs |
+| --- | --- | --- | --- |
+| **FactScore** | Are the answer's claims **consistent with known facts**? | NLI cross-encoder | a reference answer |
+| **FaithScore** | Is every claim **grounded in the provided context**? | NLI cross-encoder | a context passage |
+| **EntityScore** | Do the answer's named **entities appear in the source**? | spaCy NER | a source passage |
+
+Every metric returns a score in `[0, 1]` where **higher = less hallucination**.
+
+## Why hallucination-eval?
+
+- 🎯 **Reference-grounded, not LLM-as-judge.** Deterministic, cheap, reproducible, and free of judge-model bias — the verdict comes from a 184 MB NLI model and spaCy NER, not another API call.
+- 🧭 **Three signals, not one.** Factual consistency, contextual faithfulness, and entity grounding catch *different* failure modes.
+- 🔌 **Plug in any model.** One `--base-url` away from OpenAI, Gemini, or a local Ollama/vLLM server. Gemini and Ollama presets are built in.
+- 🛡️ **Applicability-aware scoring.** A metric that can't apply to a dataset (e.g. FaithScore on context-free TruthfulQA) is shown as `n/a` and **excluded from the combined score** — so it never silently drags the headline number down.
+- ⚡ **Fast & honest.** Batched NLI inference + an on-disk score cache; ships **real measured numbers** and documents its **limitations** instead of hiding them.
 
 ## Install
 
 ```bash
-pip install hallucination-eval          # from PyPI (or `pip install -e .` from a clone)
+pip install hallucination-eval          # or: pip install -e .  (from a clone)
 python -m spacy download en_core_web_sm  # required for EntityScore
 ```
 
-The first run downloads the NLI model `cross-encoder/nli-deberta-v3-small`
-(~280 MB) from the HuggingFace Hub.
+The first scoring run downloads the NLI model
+[`cross-encoder/nli-deberta-v3-small`](https://huggingface.co/cross-encoder/nli-deberta-v3-small)
+(~184 MB) from the HuggingFace Hub.
 
-## Quickstart (CLI)
+## 60-second quickstart
+
+**CLI — generate answers with a model, then score them:**
 
 ```bash
-# Generate answers with gpt-4o-mini on HaluEval, then score them
+# Google Gemini (uses GEMINI_API_KEY) — built-in preset
+export GEMINI_API_KEY=...
+hallucination-eval --model gemini-2.5-flash --dataset halueval --limit 50 -o run.json --csv run.csv
+
+# OpenAI
 export OPENAI_API_KEY=sk-...
 hallucination-eval --model gpt-4o-mini --dataset halueval --limit 50
 
-# Score a local open model served by Ollama (OpenAI-compatible)
-hallucination-eval --model mistral --dataset halueval --limit 50
-hallucination-eval --model gemma2  --dataset halueval --limit 50
+# A local open model via Ollama (OpenAI-compatible) — built-in presets
+hallucination-eval --model mistral --dataset halueval
+hallucination-eval --model gemma2  --dataset halueval
 
-# Any custom OpenAI-compatible endpoint + model id
-hallucination-eval --model my-llama-3 --base-url http://localhost:8000/v1 --dataset truthfulqa
+# Any custom endpoint + model id
+hallucination-eval --model my-llama-3 --base-url http://localhost:8000/v1 --dataset squad
 
-# Don't call a model — just score the dataset's gold answers (no API key needed)
-hallucination-eval --dataset halueval --no-generate --limit 50
+# No API key needed — score the dataset's own gold / hallucinated answers
+hallucination-eval --dataset halueval --no-generate
+hallucination-eval --dataset halueval --use-hallucinated --show-samples
 
-# Sanity check: score the dataset's *hallucinated* answers (expect low scores)
-hallucination-eval --dataset halueval --use-hallucinated --limit 50 --show-samples
-
-# Save a JSON report and choose a subset of metrics
-hallucination-eval --dataset halueval --evaluators fact,entity -o reports/run.json
+# Compare two saved runs side by side
+hallucination-eval --compare run_a.json run_b.json
 ```
 
-Useful flags: `--split`, `--config`, `--limit`, `--base-url`, `--api-key`,
-`--evaluators fact,faith,entity`, `--reference file.json`, `--nli-model`,
-`--device cpu|cuda`, `--system-prompt`, `--temperature`, `--max-tokens`,
-`--output/-o`, `--show-samples`.
-
-## Quickstart (Python API)
+**Python API:**
 
 ```python
 from hallucination_eval import FactScore, FaithScore, EntityScore
@@ -65,68 +107,149 @@ context = "The Eiffel Tower is in Paris, France. It was completed in 1889."
 question = "Where is the Eiffel Tower?"
 answer = "The Eiffel Tower is in Paris and was completed in 1889."
 
-print(FactScore().evaluate(question, context, answer))   # ~1.0  (consistent)
-print(FaithScore().evaluate(question, context, answer))  # ~1.0  (grounded)
-print(EntityScore().evaluate(question, context, answer)) # ~1.0  (entities grounded)
+FactScore().evaluate(question, context, answer)    # ~1.0  (consistent)
+FaithScore().evaluate(question, context, answer)   # ~1.0  (grounded)
+EntityScore().evaluate(question, context, answer)  # ~1.0  (entities grounded)
 
-# Batch scoring with summary stats + per-sample diagnostics
-samples = [{"id": "1", "question": question, "context": context,
-            "reference": context, "answer": answer}]
-print(FactScore().evaluate_batch(samples)["mean"])
+# Batch scoring -> {mean, min, max, std, count, scores, details, applicable}
+FactScore().evaluate_batch([
+    {"id": "1", "question": question, "context": context, "reference": context, "answer": answer}
+])["mean"]
 ```
 
-Each evaluator implements the same interface:
+## 📊 Leaderboard
 
-- `evaluate(question, context, answer) -> float` — a single 0–1 score.
-- `evaluate_batch(samples: list[dict]) -> dict` — `{mean, min, max, std, count, scores, details}`.
+> Models generated answers on **HaluEval (qa)**, which were then scored. `↑` higher is better; `↓` lower is better.
+> Reproduce with `hallucination-eval --model <m> --dataset halueval`.
+> A small **N=10** demo run measured by this repo — rerun with a larger `--limit` for stable numbers, and see [Caveats](#caveats-read-before-trusting-a-number) for how to read FaithScore.
+
+| Model | N | FactScore ↑ | FaithScore ↑ | EntityScore ↑ | Hallucination ↓ |
+| --- | --: | --: | --: | --: | --: |
+| gemini-flash-latest | 10 | 0.45 | **0.82** | **0.83** | **0.30** |
+| gemini-2.5-flash | 10 | **0.53** | 0.50 | 0.70 | 0.43 |
+| gemini-flash-lite-latest | 10 | 0.38 | 0.68 | 0.65 | 0.43 |
+
+<sub>Want your model here? Run the CLI and open a PR with the JSON report.</sub>
 
 ## How the scores work
 
-- **FactScore** splits the answer into atomic claims, runs NLI against a
-  reference fact set (the dataset's gold answer by default), and scores each
-  claim `1.0` if **entailed**, `0.0` if **contradicted**, and `neutral_weight`
-  (default `0.5`) if unverifiable. The score is the mean over claims.
-- **FaithScore** runs NLI of each answer sentence against the **context**
-  passage (chunked to fit the model). Sentences are `supported` (1.0),
-  `contradicted` (0.0) or `unsupported` (neutral_weight). FaithScore needs a
-  context — datasets without one (e.g. TruthfulQA) are not meaningful for it.
-- **EntityScore** extracts named entities from the source and the answer with
-  spaCy and returns the fraction of the answer's entities that appear in the
-  source. An answer with no entities scores `1.0`.
+All three split the answer into atomic claims/sentences and score each, then average.
 
-The report also prints a **combined faithfulness** (mean of the metric means)
-and its complement, the **hallucination score** (`1 − combined`).
+### FactScore — factual consistency vs. a reference
+
+For each claim, run NLI against every reference fact and keep the strongest signal:
+
+```
+score(claim) = 1.0   if entailed      (max P(entail) ≥ τ_e  and  ≥ max P(contra))
+             = 0.0   if contradicted  (max P(contra) ≥ τ_c  and  >  max P(entail))
+             = w     otherwise         (neutral / unverifiable, default w = 0.5)
+
+FactScore = mean over claims
+```
+
+```mermaid
+flowchart TD
+    C[Answer claim] --> N[NLI vs. each reference fact]
+    N --> D{strongest signal?}
+    D -- entailed --> S1["1.0 ✅ supported"]
+    D -- contradicted --> S0["0.0 ❌ contradicted"]
+    D -- neither --> SW["w ⚠️ neutral / unverifiable"]
+```
+
+### FaithScore — faithfulness vs. the context
+
+Same NLI engine, but the **premise is the context passage** (chunked to fit the model) and the hypothesis is each answer sentence. Sentences are `supported` (1.0), `contradicted` (0.0), or `unsupported` (w). Catches claims the model added that the passage never backs.
+
+### EntityScore — entity grounding vs. the source
+
+```
+EntityScore = |entities(answer) ∩ entities(source)| / |entities(answer)|
+```
+
+spaCy NER on both texts; an answer with no entities scores `1.0` (nothing to fabricate).
+
+The report also prints a **combined faithfulness** (mean of the *applicable* metric means) and its complement, the **hallucination score** (`1 − combined`).
 
 ## Datasets
 
-- **HaluEval** (`--dataset halueval`, config `qa`) — `knowledge` passage,
-  `question`, `right_answer`, `hallucinated_answer`. Great for all three
-  metrics and for the `--use-hallucinated` sanity check.
-- **TruthfulQA** (`--dataset truthfulqa`, config `generation`) — `question`,
-  `best_answer`, `correct_answers`. No context passage, so use **FactScore**
-  (`--evaluators fact`).
+| Dataset | `--dataset` | Context? | Best for |
+| --- | --- | --- | --- |
+| **HaluEval** (qa) | `halueval` | ✅ `knowledge` passage | all three metrics; `--use-hallucinated` sanity check |
+| **TruthfulQA** (generation) | `truthfulqa` | ❌ none | **FactScore** (`--evaluators fact`) |
+| **SQuAD** v1.1 | `squad` | ✅ Wikipedia passage | **FaithScore** & EntityScore on grounded answers |
 
-## Leaderboard
+## Features
 
-> **Placeholder** — numbers below are illustrative, not measured. Run the CLI
-> and open a PR to populate this table.
+- **Built-in model presets** — `gpt-4o-mini`, `gemini-2.5-flash`, `gemini-flash-latest`, `gemini-flash-lite-latest`, `gemma2`, `mistral`, plus any `--model <id> --base-url <url>`.
+- **Batched NLI** — all of a sample's claim×reference (or sentence×chunk) pairs go through the cross-encoder in one call.
+- **Score cache** — `--cache cache.json` memoises NLI results across runs.
+- **Outputs** — coloured terminal table, `--output report.json`, `--csv scores.csv` (formula-injection safe), per-label breakdowns, `--show-samples`.
+- **`--compare a.json b.json …`** — side-by-side model comparison with the best score per metric highlighted.
+- **Applicability-aware** — context-dependent metrics are excluded from the combined score on context-free datasets.
 
-| Model | Dataset | FactScore ↑ | FaithScore ↑ | EntityScore ↑ | Hallucination ↓ |
-| --- | --- | --- | --- | --- | --- |
-| gpt-4o-mini | HaluEval (qa) | – | – | – | – |
-| gemma2 | HaluEval (qa) | – | – | – | – |
-| mistral | HaluEval (qa) | – | – | – | – |
-| _your model_ | _your dataset_ | – | – | – | – |
+## Architecture
+
+```mermaid
+flowchart TD
+    CLI[cli.py] --> L[datasets/loader.py]
+    CLI --> MC[model_client.py<br/>OpenAI-compatible]
+    CLI --> EV[evaluators/]
+    CLI --> R[report.py]
+    EV --> FS[FactScore]
+    EV --> FA[FaithScore]
+    EV --> EN[EntityScore]
+    FS --> NLI[_nli.py · NLIScorer<br/>lazy · cached · batched]
+    FA --> NLI
+    EN --> SP[spaCy en_core_web_sm]
+    NLI --> ST[sentence-transformers<br/>CrossEncoder]
+```
+
+```
+src/hallucination_eval/
+├── evaluators/{base,fact_score,faith_score,entity_score}.py
+├── _nli.py          # shared NLI cross-encoder: lazy load, label resolution, cache
+├── _text.py         # sentence splitting / context chunking
+├── model_client.py  # OpenAI-compatible client + presets
+├── datasets/loader.py
+├── report.py        # rich table · JSON · CSV · comparison
+└── cli.py
+```
+
+## CLI reference
+
+| Flag | Description |
+| --- | --- |
+| `--model` | Preset name or model id (default `gpt-4o-mini`) |
+| `--dataset` | `halueval` · `truthfulqa` · `squad` |
+| `--split` / `--config` / `--limit` | Dataset split, config, and sample cap |
+| `--base-url` / `--api-key` | Endpoint + key overrides (else from env) |
+| `--evaluators` | Subset of `fact,faith,entity` |
+| `--reference FILE` | Override FactScore references from a JSON file |
+| `--nli-model` / `--device` | NLI cross-encoder id / torch device |
+| `--system-prompt` / `--temperature` / `--max-tokens` | Generation controls |
+| `--no-generate` / `--use-hallucinated` | Score gold / known-bad answers |
+| `--output/-o` / `--csv` / `--cache` | JSON report / CSV / NLI cache paths |
+| `--compare R1 R2 …` | Compare saved JSON reports and exit |
+| `--show-samples` | Print a per-sample score table |
 
 ## Development
 
 ```bash
-pip install -e ".[dev]"
-python -m spacy download en_core_web_sm
-
-pytest                 # fast mocked unit tests
-pytest -m integration  # real NLI + spaCy models (downloads weights)
+pip install -e ".[dev]" && python -m spacy download en_core_web_sm
+pytest                 # fast mocked unit tests (CI runs these on every push)
+pytest -m integration  # real NLI + spaCy models (downloads weights; weekly CI)
 ```
+
+CI: [`tests`](.github/workflows/ci.yml) on every push (Python 3.11 & 3.12),
+[`integration`](.github/workflows/integration.yml) weekly, and
+[`release`](.github/workflows/release.yml) publishes to PyPI on a `v*` tag via Trusted Publishing.
+
+## Caveats (read before trusting a number)
+
+- **FaithScore needs propositional answers.** On HaluEval-qa the gold answers are terse entities (e.g. `"Arthur's Magazine"`) that NLI rates *neutral*, so FaithScore is noisy there — it shines on RAG-style answers and SQuAD. EntityScore and FactScore separate good from hallucinated cleanly on HaluEval.
+- **The NLI model is small** (`deberta-v3-small`) for speed; swap a larger one with `--nli-model` for more accuracy.
+- **Scores are only as good as the reference.** Garbage references → garbage FactScore.
+- These are **automatic proxies** for hallucination, not ground truth. Use them to compare models and catch regressions, not as an absolute verdict.
 
 ## License
 

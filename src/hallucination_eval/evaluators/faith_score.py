@@ -62,29 +62,38 @@ class FaithScore(BaseEvaluator):
             model_name, device=device, max_length=max_length, batch_size=batch_size
         )
 
-    def _classify_sentence(self, chunks: list[str], sentence: str) -> dict:
-        probs = self._nli.classify([(chunk, sentence) for chunk in chunks])
-        max_entailment = max(p["entailment"] for p in probs)
-        max_contradiction = max(p["contradiction"] for p in probs)
-        if (
-            max_entailment >= self.entailment_threshold
-            and max_entailment >= max_contradiction
-        ):
-            label, score = "supported", 1.0
-        elif (
-            max_contradiction >= self.contradiction_threshold
-            and max_contradiction > max_entailment
-        ):
-            label, score = "contradicted", 0.0
-        else:
-            label, score = "unsupported", self.neutral_weight
-        return {
-            "sentence": sentence,
-            "label": label,
-            "score": score,
-            "entailment": round(max_entailment, 4),
-            "contradiction": round(max_contradiction, 4),
-        }
+    def _classify_sentences(self, chunks: list[str], sentences: list[str]) -> list[dict]:
+        """Classify every answer sentence against all context chunks in one NLI batch."""
+        n_chunk = len(chunks)
+        pairs = [(chunk, sent) for sent in sentences for chunk in chunks]
+        probs = self._nli.classify(pairs)
+        details: list[dict] = []
+        for si, sent in enumerate(sentences):
+            rows = probs[si * n_chunk : (si + 1) * n_chunk]
+            max_entailment = max(p["entailment"] for p in rows)
+            max_contradiction = max(p["contradiction"] for p in rows)
+            if (
+                max_entailment >= self.entailment_threshold
+                and max_entailment >= max_contradiction
+            ):
+                label, score = "supported", 1.0
+            elif (
+                max_contradiction >= self.contradiction_threshold
+                and max_contradiction > max_entailment
+            ):
+                label, score = "contradicted", 0.0
+            else:
+                label, score = "unsupported", self.neutral_weight
+            details.append(
+                {
+                    "sentence": sent,
+                    "label": label,
+                    "score": score,
+                    "entailment": round(max_entailment, 4),
+                    "contradiction": round(max_contradiction, 4),
+                }
+            )
+        return details
 
     def evaluate(self, question: str, context: str, answer: str) -> float:
         if not context or not str(context).strip():
@@ -95,8 +104,8 @@ class FaithScore(BaseEvaluator):
         chunks = chunk_text(str(context), self.context_chunk_chars)
         if not chunks:
             return 0.0
-        scores = [self._classify_sentence(chunks, s)["score"] for s in sentences]
-        return sum(scores) / len(scores)
+        details = self._classify_sentences(chunks, sentences)
+        return sum(d["score"] for d in details) / len(details)
 
     def _score_sample(self, sample: dict) -> tuple[float, dict]:
         context = sample.get("context", "") or ""
@@ -111,7 +120,7 @@ class FaithScore(BaseEvaluator):
         if not sentences:
             return 0.0, {"n_sentences": 0, "sentences": []}
         chunks = chunk_text(str(context), self.context_chunk_chars)
-        details = [self._classify_sentence(chunks, s) for s in sentences]
+        details = self._classify_sentences(chunks, sentences)
         score = sum(d["score"] for d in details) / len(details)
         return score, {"n_sentences": len(details), "sentences": details}
 

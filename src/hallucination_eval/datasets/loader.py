@@ -35,7 +35,7 @@ from __future__ import annotations
 import warnings
 from typing import Optional
 
-SUPPORTED_DATASETS = ("halueval", "truthfulqa")
+SUPPORTED_DATASETS = ("halueval", "truthfulqa", "squad")
 
 
 def _norm_name(name: str) -> str:
@@ -102,6 +102,8 @@ def load_samples(
         return _load_halueval(split, limit, config)
     if key in ("truthfulqa", "truthful"):
         return _load_truthfulqa(split, limit, config)
+    if key in ("squad", "squadv1", "squad11"):
+        return _load_squad(split, limit, config)
     raise ValueError(
         f"Unknown dataset '{name}'. Supported datasets: {', '.join(SUPPORTED_DATASETS)}."
     )
@@ -162,6 +164,36 @@ def _load_truthfulqa(split, limit, config) -> list[dict]:
                 "hallucinated_answer": str(incorrect[0]) if incorrect else None,
                 "answer": None,
                 "source": row.get("source", ""),
+            }
+        )
+    return samples
+
+
+def _load_squad(split, limit, config) -> list[dict]:
+    """SQuAD v1.1: a Wikipedia passage (context) + question + gold answer span(s).
+
+    A context-rich benchmark, so all three metrics apply - especially FaithScore,
+    which is most meaningful when there is a real passage to ground against.
+    """
+    from datasets import load_dataset
+
+    dataset = _resolve_split(load_dataset, "rajpurkar/squad", config, split, "validation")
+    samples: list[dict] = []
+    for i, row in enumerate(dataset):
+        if limit is not None and i >= limit:
+            break
+        answers = row.get("answers") or {}
+        texts = list(answers.get("text") or [])
+        gold = texts[0] if texts else ""
+        samples.append(
+            {
+                "id": str(row.get("id", f"squad-{i}")),
+                "question": str(row.get("question", "")),
+                "context": str(row.get("context", "")),
+                "reference": _dedupe(texts) or [gold],
+                "gold_answer": str(gold),
+                "hallucinated_answer": None,
+                "answer": None,
             }
         )
     return samples

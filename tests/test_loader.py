@@ -77,3 +77,26 @@ def test_name_normalisation_accepts_separators(monkeypatch):
     monkeypatch.setattr(datasets, "load_dataset", lambda *a, **k: _HALUEVAL_ROWS)
     assert load_samples("Halu-Eval", limit=1)
     assert load_samples("HALU_EVAL", limit=1)
+
+
+_SQUAD_ROWS = [
+    {
+        "id": "s1",
+        "question": "Where is the Eiffel Tower?",
+        "context": "The Eiffel Tower is a tower in Paris, France.",
+        "answers": {"text": ["Paris", "Paris, France"], "answer_start": [0, 0]},
+    }
+]
+
+
+def test_load_squad_normalises(monkeypatch):
+    def fake_load(repo, config, split=None):
+        assert repo == "rajpurkar/squad"
+        return _SQUAD_ROWS
+
+    monkeypatch.setattr(datasets, "load_dataset", fake_load)
+    sample = load_samples("squad")[0]
+    assert sample["context"].startswith("The Eiffel Tower")
+    assert sample["reference"] == ["Paris", "Paris, France"]
+    assert sample["gold_answer"] == "Paris"
+    assert sample["hallucinated_answer"] is None

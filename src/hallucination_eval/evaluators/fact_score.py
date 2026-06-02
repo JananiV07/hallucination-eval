@@ -93,30 +93,42 @@ class FactScore(BaseEvaluator):
                 out.append(text)
         return out
 
-    def _classify_claim(self, references: list[str], claim: str) -> dict:
-        """Return the label + signals for a single claim vs. all references."""
-        probs = self._nli.classify([(ref, claim) for ref in references])
-        max_entailment = max(p["entailment"] for p in probs)
-        max_contradiction = max(p["contradiction"] for p in probs)
-        if (
-            max_contradiction >= self.contradiction_threshold
-            and max_contradiction > max_entailment
-        ):
-            label, score = "contradicted", 0.0
-        elif (
-            max_entailment >= self.entailment_threshold
-            and max_entailment >= max_contradiction
-        ):
-            label, score = "supported", 1.0
-        else:
-            label, score = "neutral", self.neutral_weight
-        return {
-            "claim": claim,
-            "label": label,
-            "score": score,
-            "entailment": round(max_entailment, 4),
-            "contradiction": round(max_contradiction, 4),
-        }
+    def _classify_claims(self, references: list[str], claims: list[str]) -> list[dict]:
+        """Classify every claim against all references with a single NLI batch.
+
+        Builds the full ``claims x references`` pair list, runs one batched NLI
+        call, then reduces each claim's reference rows to a label + score.
+        """
+        n_ref = len(references)
+        pairs = [(ref, claim) for claim in claims for ref in references]
+        probs = self._nli.classify(pairs)
+        details: list[dict] = []
+        for ci, claim in enumerate(claims):
+            rows = probs[ci * n_ref : (ci + 1) * n_ref]
+            max_entailment = max(p["entailment"] for p in rows)
+            max_contradiction = max(p["contradiction"] for p in rows)
+            if (
+                max_contradiction >= self.contradiction_threshold
+                and max_contradiction > max_entailment
+            ):
+                label, score = "contradicted", 0.0
+            elif (
+                max_entailment >= self.entailment_threshold
+                and max_entailment >= max_contradiction
+            ):
+                label, score = "supported", 1.0
+            else:
+                label, score = "neutral", self.neutral_weight
+            details.append(
+                {
+                    "claim": claim,
+                    "label": label,
+                    "score": score,
+                    "entailment": round(max_entailment, 4),
+                    "contradiction": round(max_contradiction, 4),
+                }
+            )
+        return details
 
     # -- public API --------------------------------------------------------
     def evaluate(self, question: str, context: str, answer: str, reference=None) -> float:
@@ -131,8 +143,8 @@ class FactScore(BaseEvaluator):
             return 0.0
         if not references:
             return self.neutral_weight
-        scores = [self._classify_claim(references, c)["score"] for c in claims]
-        return sum(scores) / len(scores)
+        details = self._classify_claims(references, claims)
+        return sum(d["score"] for d in details) / len(details)
 
     def _score_sample(self, sample: dict) -> tuple[float, dict]:
         reference = (
@@ -152,7 +164,7 @@ class FactScore(BaseEvaluator):
                 for c in claims
             ]
         else:
-            claim_details = [self._classify_claim(references, c) for c in claims]
+            claim_details = self._classify_claims(references, claims)
         score = sum(d["score"] for d in claim_details) / len(claim_details)
         diagnostics = {
             "n_claims": len(claim_details),

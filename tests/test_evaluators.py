@@ -241,3 +241,32 @@ def test_resolve_label_indices_uses_config_order_and_falls_back():
     # Generic labels can't be resolved -> conventional fallback (with a warning).
     generic = SimpleNamespace(config=SimpleNamespace(id2label={0: "LABEL_0", 1: "LABEL_1", 2: "LABEL_2"}))
     assert _resolve_label_indices(generic) == {"contradiction": 0, "entailment": 1, "neutral": 2}
+
+
+def test_nli_classify_caches_repeated_pairs():
+    import numpy as np
+
+    from hallucination_eval._nli import NLIScorer
+
+    class CountingCE:
+        config = SimpleNamespace(id2label={0: "contradiction", 1: "entailment", 2: "neutral"})
+
+        def __init__(self):
+            self.calls = 0
+            self.rows_seen = 0
+
+        def predict(self, pairs, **kwargs):
+            self.calls += 1
+            self.rows_seen += len(pairs)
+            return np.array([[0.1, 0.8, 0.1] for _ in pairs])
+
+    scorer = NLIScorer()
+    ce = CountingCE()
+    scorer._model = ce
+    scorer._labels = {"contradiction": 0, "entailment": 1, "neutral": 2}
+
+    scorer.classify([("a", "b"), ("c", "d")])  # 2 unique pairs -> 1 predict call
+    assert ce.calls == 1 and ce.rows_seen == 2
+    out = scorer.classify([("a", "b")])  # fully cached -> no new predict
+    assert ce.calls == 1
+    assert abs(out[0]["entailment"] - 0.8) < 1e-6

@@ -32,10 +32,17 @@ DEFAULT_SYSTEM_PROMPT = (
 )
 
 # base_url=None means "use the OpenAI default endpoint".
+OLLAMA_BASE = "http://localhost:11434/v1"
+GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/openai/"
+
 PRESETS: dict[str, dict] = {
     "gpt-4o-mini": {"base_url": None, "model": "gpt-4o-mini", "api_key_env": "OPENAI_API_KEY"},
-    "gemma2": {"base_url": "http://localhost:11434/v1", "model": "gemma2", "api_key_env": None},
-    "mistral": {"base_url": "http://localhost:11434/v1", "model": "mistral", "api_key_env": None},
+    "gemma2": {"base_url": OLLAMA_BASE, "model": "gemma2", "api_key_env": None},
+    "mistral": {"base_url": OLLAMA_BASE, "model": "mistral", "api_key_env": None},
+    # Google Gemini via its OpenAI-compatible endpoint (reads GEMINI_API_KEY).
+    "gemini-2.5-flash": {"base_url": GEMINI_BASE, "model": "gemini-2.5-flash", "api_key_env": "GEMINI_API_KEY"},
+    "gemini-flash-latest": {"base_url": GEMINI_BASE, "model": "gemini-flash-latest", "api_key_env": "GEMINI_API_KEY"},
+    "gemini-flash-lite-latest": {"base_url": GEMINI_BASE, "model": "gemini-flash-lite-latest", "api_key_env": "GEMINI_API_KEY"},
 }
 
 
@@ -53,7 +60,7 @@ class ModelClient:
         base_url: str | None = None,
         api_key: str | None = None,
         temperature: float = 0.0,
-        max_tokens: int = 512,
+        max_tokens: int = 1024,
         timeout: float = 60.0,
         max_retries: int = 3,
         system_prompt: str | None = None,

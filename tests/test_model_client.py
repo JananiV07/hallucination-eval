@@ -69,3 +69,11 @@ def test_generate_raises_clear_error_after_exhausting_retries(monkeypatch):
     client._client = _fake_client(responder)
     with pytest.raises(RuntimeError, match="Generation failed"):
         client.generate("q")
+
+
+def test_preset_gemini_resolution(monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "g-test")
+    client = ModelClient("gemini-2.5-flash")
+    assert client.model_id == "gemini-2.5-flash"
+    assert client.base_url == "https://generativelanguage.googleapis.com/v1beta/openai/"
+    assert client.api_key == "g-test"

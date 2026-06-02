@@ -4,7 +4,7 @@ import json
 
 from rich.console import Console
 
-from hallucination_eval.report import build_report, render_report, save_json
+from hallucination_eval.report import build_report, render_comparison, render_report, save_csv, save_json
 
 _RESULTS = [
     {"name": "fact_score", "mean": 0.8, "min": 0.5, "max": 1.0, "std": 0.2, "count": 3, "scores": [0.5, 0.9, 1.0], "details": [
@@ -68,3 +68,48 @@ def test_inapplicable_metric_rendered_as_na():
     console = Console(file=io.StringIO(), width=100)
     render_report(report, console=console)
     assert "n/a" in console.file.getvalue()
+
+
+def test_label_counts_in_build_report():
+    results = [
+        {
+            "name": "fact_score", "mean": 0.5, "min": 0.0, "max": 1.0, "std": 0.5, "count": 1,
+            "applicable": True, "scores": [0.5],
+            "details": [{"id": "1", "answer": "a", "score": 0.5,
+                         "claims": [{"label": "supported"}, {"label": "contradicted"}]}],
+        }
+    ]
+    report = build_report(results)
+    assert report["metrics"]["fact_score"]["labels"] == {"supported": 1, "contradicted": 1}
+
+
+def test_save_csv_roundtrip(tmp_path):
+    report = build_report(_RESULTS, meta={"model": "m"})
+    path = save_csv(report, str(tmp_path / "out.csv"))
+    lines = open(path, encoding="utf-8").read().splitlines()
+    assert lines[0] == "id,fact_score,entity_score,answer"
+    assert len(lines) == 1 + 3  # header + 3 samples
+
+
+def test_render_comparison_runs():
+    a = build_report(_RESULTS, meta={"model": "model-A"})
+    b = build_report(_RESULTS, meta={"model": "model-B"})
+    console = Console(file=io.StringIO(), width=120)
+    render_comparison({"model-A": a, "model-B": b}, console=console)
+    out = console.file.getvalue()
+    assert "model-A" in out and "model-B" in out
+    assert "combined_faithfulness" in out
+
+
+def test_save_csv_sanitizes_formula_injection(tmp_path):
+    results = [
+        {
+            "name": "fact_score", "mean": 1.0, "min": 1.0, "max": 1.0, "std": 0.0, "count": 1,
+            "applicable": True, "scores": [1.0],
+            "details": [{"id": "=danger", "answer": "=cmd|'/c calc'!A1", "score": 1.0}],
+        }
+    ]
+    report = build_report(results)
+    text = open(save_csv(report, str(tmp_path / "x.csv")), encoding="utf-8").read()
+    assert "'=danger" in text  # leading '=' neutralised
+    assert "'=cmd" in text

@@ -1,6 +1,7 @@
 # hallucination-eval
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/JananiV07/hallucination-eval/blob/main/notebooks/walkthrough.ipynb)
+[![tests](https://github.com/JananiV07/hallucination-eval/actions/workflows/ci.yml/badge.svg)](https://github.com/JananiV07/hallucination-eval/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 
